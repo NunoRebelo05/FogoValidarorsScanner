@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Fogo Validator Explorer - Download</title>
+  <style>
+    :root {
+      --bg: #0a0a0a;
+      --card: #1a1a1a;
+      --text: #f5f5f7;
+      --text2: #a1a1a6;
+      --accent: #ff6b35;
+      --accent2: #ff8c5a;
+      --border: #2a2a2a;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg); color: var(--text); min-height: 100vh;
+      -webkit-font-smoothing: antialiased;
+    }
+    .hero {
+      text-align: center; padding: 80px 20px 40px;
+      background: radial-gradient(ellipse at 50% 0%, rgba(255,107,53,0.15) 0%, transparent 60%);
+    }
+    .hero .icon { font-size: 72px; margin-bottom: 20px; }
+    .hero h1 {
+      font-size: 48px; font-weight: 800; letter-spacing: -1.5px;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+      margin-bottom: 12px;
+    }
+    .hero p { color: var(--text2); font-size: 18px; max-width: 500px; margin: 0 auto; line-height: 1.6; }
+
+    .download-section {
+      max-width: 700px; margin: 40px auto; padding: 0 20px;
+      display: flex; gap: 20px; justify-content: center; flex-wrap: wrap;
+    }
+    .dl-card {
+      background: var(--card); border: 1px solid var(--border); border-radius: 20px;
+      padding: 36px 32px; text-align: center; flex: 1; min-width: 260px; max-width: 320px;
+      transition: transform 0.2s, border-color 0.2s;
+    }
+    .dl-card:hover { transform: translateY(-4px); border-color: var(--accent); }
+    .dl-card .os-icon { font-size: 48px; margin-bottom: 16px; }
+    .dl-card h3 { font-size: 20px; font-weight: 700; margin-bottom: 6px; }
+    .dl-card .os-label { color: var(--text2); font-size: 14px; margin-bottom: 24px; }
+    .dl-btn {
+      display: inline-block; padding: 14px 36px; border-radius: 12px;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      color: #fff; text-decoration: none; font-size: 16px; font-weight: 600;
+      transition: opacity 0.2s; border: none; cursor: pointer;
+    }
+    .dl-btn:hover { opacity: 0.85; }
+    .dl-size { color: var(--text2); font-size: 12px; margin-top: 12px; }
+
+    .instructions {
+      max-width: 600px; margin: 60px auto; padding: 0 20px;
+    }
+    .instructions h2 {
+      font-size: 24px; font-weight: 700; margin-bottom: 24px; text-align: center;
+    }
+    .step {
+      display: flex; gap: 16px; margin-bottom: 24px; align-items: flex-start;
+    }
+    .step-num {
+      width: 36px; height: 36px; border-radius: 50%; flex-shrink: 0;
+      background: var(--accent); color: #fff; display: flex; align-items: center;
+      justify-content: center; font-weight: 700; font-size: 16px;
+    }
+    .step-text h4 { font-size: 16px; font-weight: 600; margin-bottom: 4px; }
+    .step-text p { color: var(--text2); font-size: 14px; line-height: 1.5; }
+
+    .version-badge {
+      display: inline-block; padding: 6px 14px; border-radius: 8px;
+      background: var(--card); border: 1px solid var(--border);
+      color: var(--text2); font-size: 13px; margin-top: 32px;
+    }
+
+    footer {
+      text-align: center; padding: 40px 20px; margin-top: 40px;
+      border-top: 1px solid var(--border); color: var(--text2); font-size: 13px;
+    }
+    footer a { color: var(--accent); text-decoration: none; }
+
+    @media (max-width: 600px) {
+      .hero h1 { font-size: 32px; }
+      .hero p { font-size: 15px; }
+      .download-section { flex-direction: column; align-items: center; }
+      .dl-card { max-width: 100%; }
+    }
+  </style>
+</head>
+<body>
+  <div class="hero">
+    <div class="icon">&#x1F525;</div>
+    <h1>Fogo Validator Explorer</h1>
+    <p>Explore and analyze all validators on the Fogo blockchain. View stakes, transactions, delegators, and more.</p>
+    <div class="version-badge" id="version">Loading version...</div>
+  </div>
+
+  <div class="download-section">
+    <div class="dl-card">
+      <div class="os-icon">&#x1F5A5;&#xFE0F;</div>
+      <h3>Windows</h3>
+      <div class="os-label">Windows 10 / 11</div>
+      <a class="dl-btn" id="dl-win" href="#">&#x2B07; Download</a>
+      <div class="dl-size" id="size-win"></div>
+    </div>
+    <div class="dl-card">
+      <div class="os-icon">&#xF8FF;</div>
+      <h3>macOS</h3>
+      <div class="os-label">macOS 12+</div>
+      <a class="dl-btn" id="dl-mac" href="#">&#x2B07; Download</a>
+      <div class="dl-size" id="size-mac"></div>
+    </div>
+  </div>
+
+  <div class="instructions">
+    <h2>How to Install</h2>
+    <div class="step">
+      <div class="step-num">1</div>
+      <div class="step-text">
+        <h4>Download</h4>
+        <p>Click the download button for your operating system above.</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">2</div>
+      <div class="step-text">
+        <h4>Extract</h4>
+        <p><strong>Windows:</strong> Right-click the .zip file and select "Extract All".<br>
+        <strong>macOS:</strong> Double-click the .zip file to extract it.</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">3</div>
+      <div class="step-text">
+        <h4>Open the App</h4>
+        <p><strong>Windows:</strong> Open the extracted folder and double-click <strong>"Fogo Validator Explorer.exe"</strong>.<br>
+        <strong>macOS:</strong> Drag <strong>"Fogo Validator Explorer.app"</strong> to your Applications folder and open it. If macOS says the app is from an unidentified developer, go to System Settings &gt; Privacy &amp; Security and click "Open Anyway".</p>
+      </div>
+    </div>
+  </div>
+
+  <footer>
+    Developed by <strong>Nuno Rebelo</strong> for <a href="#">Fogees Hub</a>
+    <br><br>
+    <a href="https://github.com/NunoRebelo05/FogoValidarorsScanner">View on GitHub</a>
+  </footer>
+
+  <script>
+    const REPO = 'NunoRebelo05/FogoValidarorsScanner';
+
+    async function loadRelease() {
+      try {
+        const res = await fetch('https://api.github.com/repos/' + REPO + '/releases/latest');
+        const rel = await res.json();
+
+        document.getElementById('version').textContent = rel.tag_name + ' — ' + new Date(rel.published_at).toLocaleDateString();
+
+        for (const asset of rel.assets) {
+          const name = asset.name.toLowerCase();
+          const sizeMB = (asset.size / 1048576).toFixed(1) + ' MB';
+          if (name.includes('windows')) {
+            document.getElementById('dl-win').href = asset.browser_download_url;
+            document.getElementById('size-win').textContent = sizeMB;
+          }
+          if (name.includes('macos') || name.includes('mac')) {
+            document.getElementById('dl-mac').href = asset.browser_download_url;
+            document.getElementById('size-mac').textContent = sizeMB;
+          }
+        }
+      } catch (e) {
+        document.getElementById('version').textContent = 'Could not load release info';
+      }
+    }
+
+    loadRelease();
+  </script>
+</body>
+</html>
