@@ -1,0 +1,61 @@
+name: Build & Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install
+      - run: npx electron-builder --win --publish never
+      - name: Zip Windows build
+        run: Compress-Archive -Path "dist/win-unpacked/*" -DestinationPath "dist/FogoValidatorExplorer-Windows.zip"
+        shell: pwsh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-build
+          path: dist/FogoValidatorExplorer-Windows.zip
+
+  build-mac:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install
+      - run: npx electron-builder --mac --publish never
+      - name: Zip macOS build
+        run: cd dist/mac-arm64 && zip -r ../FogoValidatorExplorer-macOS.zip "Fogo Validator Explorer.app"
+        shell: bash
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mac-build
+          path: dist/FogoValidatorExplorer-macOS.zip
+
+  release:
+    needs: [build-windows, build-mac]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-build
+          path: artifacts
+      - uses: actions/download-artifact@v4
+        with:
+          name: mac-build
+          path: artifacts
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*
+          generate_release_notes: true

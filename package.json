@@ -6,7 +6,9 @@
   "scripts": {
     "start": "node server.js",
     "electron": "electron .",
-    "dist": "electron-builder --win"
+    "dist": "electron-builder --win",
+    "dist:mac": "electron-builder --mac",
+    "dist:all": "electron-builder --win --mac"
   },
   "author": "Nuno Rebelo",
   "dependencies": {
@@ -29,6 +31,10 @@
     "win": {
       "target": "dir",
       "signAndEditExecutable": false
+    },
+    "mac": {
+      "target": "dir",
+      "identity": null
     }
   }
 }
