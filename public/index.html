@@ -1,0 +1,671 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Fogo Validator Explorer</title>
+  <style>
+    :root {
+      --bg: #f5f5f7;
+      --card: #ffffff;
+      --text: #1d1d1f;
+      --text2: #6e6e73;
+      --accent: #ff6b35;
+      --accent2: #ff8c5a;
+      --border: #e5e5e7;
+      --shadow: 0 2px 12px rgba(0,0,0,0.08);
+      --radius: 16px;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg); color: var(--text); min-height: 100vh;
+      -webkit-font-smoothing: antialiased;
+    }
+    .container { max-width: 960px; margin: 0 auto; padding: 40px 20px 60px; }
+    header { text-align: center; margin-bottom: 36px; }
+    header h1 { font-size: 32px; font-weight: 700; letter-spacing: -0.5px; }
+    header h1 span { color: var(--accent); }
+    header p { color: var(--text2); font-size: 15px; margin-top: 6px; }
+
+    .loading { text-align: center; padding: 80px 0; color: var(--text2); font-size: 15px; }
+    .spinner {
+      width: 32px; height: 32px; border: 3px solid var(--border);
+      border-top-color: var(--accent); border-radius: 50%;
+      animation: spin 0.8s linear infinite; margin: 0 auto 12px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .error { text-align: center; padding: 40px; color: #d32f2f; font-size: 15px; }
+
+    /* Network stats bar */
+    .net-stats {
+      display: flex; gap: 12px; margin-bottom: 28px; flex-wrap: wrap; justify-content: center;
+    }
+    .net-stat {
+      background: var(--card); border-radius: 12px; padding: 16px 24px;
+      box-shadow: var(--shadow); text-align: center; min-width: 140px; flex: 1;
+    }
+    .net-stat .label { font-size: 11px; color: var(--text2); text-transform: uppercase; letter-spacing: 0.5px; }
+    .net-stat .val { font-size: 20px; font-weight: 700; margin-top: 4px; }
+    .net-stat .val.accent { color: var(--accent); }
+
+    /* Search */
+    .search-box {
+      margin-bottom: 20px;
+    }
+    .search-box input {
+      width: 100%; padding: 14px 18px; border: 1px solid var(--border);
+      border-radius: 12px; font-size: 15px; background: var(--card);
+      outline: none; transition: border 0.2s; font-family: inherit;
+    }
+    .search-box input:focus { border-color: var(--accent); }
+
+    /* Validator list */
+    .v-list { display: flex; flex-direction: column; gap: 8px; }
+    .v-row {
+      background: var(--card); border-radius: 14px; box-shadow: var(--shadow);
+      padding: 16px 20px; display: flex; align-items: center; gap: 16px;
+      cursor: pointer; transition: transform 0.15s, box-shadow 0.15s;
+    }
+    .v-row:hover { transform: translateY(-1px); box-shadow: 0 4px 20px rgba(0,0,0,0.12); }
+    .v-rank { font-size: 13px; color: var(--text2); font-weight: 600; min-width: 28px; text-align: center; }
+    .v-avatar {
+      width: 40px; height: 40px; border-radius: 10px; background: var(--border);
+      overflow: hidden; flex-shrink: 0;
+    }
+    .v-avatar img { width: 100%; height: 100%; object-fit: cover; }
+    .v-avatar .placeholder {
+      width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;
+      font-size: 16px; font-weight: 700; color: var(--text2); background: var(--border);
+    }
+    .v-info { flex: 1; min-width: 0; }
+    .v-name { font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .v-pubkey { font-size: 12px; color: var(--text2); font-family: 'SF Mono', monospace; margin-top: 2px; }
+    .v-stats { display: flex; gap: 20px; flex-shrink: 0; align-items: center; }
+    .v-stat-item { text-align: right; }
+    .v-stat-item .label { font-size: 10px; color: var(--text2); text-transform: uppercase; letter-spacing: 0.4px; }
+    .v-stat-item .val { font-size: 14px; font-weight: 600; }
+    .badge { display: inline-block; padding: 3px 8px; border-radius: 6px; font-size: 11px; font-weight: 600; }
+    .badge.active { background: #e8f5e9; color: #2e7d32; }
+    .badge.delinquent { background: #fce4ec; color: #c62828; }
+
+    /* Back button */
+    .back-btn {
+      display: inline-flex; align-items: center; gap: 6px; padding: 10px 18px;
+      background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+      font-size: 14px; font-weight: 500; cursor: pointer; margin-bottom: 20px;
+      transition: background 0.2s; color: var(--text);
+    }
+    .back-btn:hover { background: var(--border); }
+
+    /* Detail page */
+    .card {
+      background: var(--card); border-radius: var(--radius);
+      box-shadow: var(--shadow); padding: 28px; margin-bottom: 16px;
+    }
+    .card h2 { font-size: 18px; font-weight: 600; margin-bottom: 16px; letter-spacing: -0.3px; }
+    .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; }
+    .stat-label { font-size: 12px; color: var(--text2); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; }
+    .stat-value { font-size: 22px; font-weight: 700; letter-spacing: -0.3px; }
+    .stat-value.accent { color: var(--accent); }
+    .stat-value.small { font-size: 14px; font-weight: 500; word-break: break-all; }
+
+    .detail-header {
+      display: flex; align-items: center; gap: 16px; margin-bottom: 4px;
+    }
+    .detail-avatar {
+      width: 56px; height: 56px; border-radius: 14px; overflow: hidden;
+      background: var(--border); flex-shrink: 0;
+    }
+    .detail-avatar img { width: 100%; height: 100%; object-fit: cover; }
+    .detail-avatar .placeholder {
+      width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;
+      font-size: 22px; font-weight: 700; color: var(--text2);
+    }
+    .detail-title { font-size: 24px; font-weight: 700; }
+    .detail-desc { color: var(--text2); font-size: 14px; margin-top: 2px; }
+    .detail-website a { color: var(--accent); text-decoration: none; font-size: 13px; }
+
+    /* Tabs */
+    .tab-bar { display: flex; gap: 0; margin-bottom: 0; }
+    .tab-btn {
+      padding: 10px 20px; background: var(--card); border: 1px solid var(--border);
+      border-bottom: none; border-radius: 10px 10px 0 0; font-size: 14px; font-weight: 600;
+      cursor: pointer; color: var(--text2); transition: all 0.2s; font-family: inherit;
+    }
+    .tab-btn.active { background: var(--card); color: var(--accent); border-bottom: 2px solid var(--accent); }
+    .tab-btn:not(.active):hover { background: var(--border); }
+    .tab-content {
+      background: var(--card); border-radius: 0 var(--radius) var(--radius) var(--radius);
+      box-shadow: var(--shadow); padding: 24px; margin-bottom: 16px;
+      border: 1px solid var(--border); border-top: none;
+    }
+
+    .data-table { width: 100%; border-collapse: collapse; }
+    .data-table th {
+      text-align: left; font-size: 12px; color: var(--text2);
+      text-transform: uppercase; letter-spacing: 0.5px; padding: 8px 6px;
+      border-bottom: 1px solid var(--border); white-space: nowrap;
+    }
+    .data-table td { padding: 10px 6px; font-size: 13px; border-bottom: 1px solid var(--border); }
+    .data-table td.mono { font-family: 'SF Mono', monospace; font-size: 12px; }
+    .data-table .total-row td { font-weight: 700; border-top: 2px solid var(--accent); border-bottom: none; background: #fff8f5; }
+
+    .ix-badge {
+      display: inline-block; padding: 2px 8px; border-radius: 6px;
+      font-size: 11px; font-weight: 600; background: #e3f2fd; color: #1565c0; margin: 1px 2px;
+    }
+    .tx-failed { color: #d32f2f; }
+    .tx-ok { color: #2e7d32; }
+
+    .tx-count { font-size: 13px; color: var(--text2); margin-bottom: 12px; }
+
+    .delegators-table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+    .delegators-table th {
+      text-align: left; font-size: 12px; color: var(--text2);
+      text-transform: uppercase; letter-spacing: 0.5px; padding: 8px 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .delegators-table td { padding: 10px 0; font-size: 14px; border-bottom: 1px solid var(--border); }
+    .delegators-table td.mono { font-family: 'SF Mono', monospace; font-size: 13px; }
+
+    footer {
+      text-align: center; margin-top: 48px; padding-top: 24px;
+      border-top: 1px solid var(--border); color: var(--text2); font-size: 13px;
+    }
+    footer a { color: var(--accent); text-decoration: none; }
+
+    @media (max-width: 700px) {
+      .v-stats { flex-direction: column; gap: 4px; }
+      .v-stat-item { text-align: right; }
+      .stat-grid { grid-template-columns: 1fr; }
+      .net-stats { gap: 8px; }
+      .net-stat { min-width: 100px; padding: 12px 14px; }
+      .net-stat .val { font-size: 16px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>&#x1F525; <span>Fogo</span> Validator Explorer</h1>
+      <p>Mainnet validator analytics</p>
+    </header>
+    <div id="app"></div>
+    <footer>
+      Developed by <strong>Nuno Rebelo</strong> for <a href="#">Fogees Hub</a>
+    </footer>
+  </div>
+
+<script>
+const LAMPORTS = 1e9;
+const app = document.getElementById('app');
+let allValidators = [];
+
+async function rpc(method, params = []) {
+  const res = await fetch('/api/rpc', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params })
+  });
+  const json = await res.json();
+  if (json.error) throw new Error(typeof json.error === 'string' ? json.error : json.error.message);
+  return json.result;
+}
+
+function fmt(n, dec = 2) {
+  return Number(n).toLocaleString('en-US', { minimumFractionDigits: dec, maximumFractionDigits: dec });
+}
+function short(addr) { return addr.slice(0, 6) + '...' + addr.slice(-4); }
+
+function avatarHtml(iconUrl, name, size) {
+  if (iconUrl) {
+    return '<img src="' + iconUrl + '" alt="" onerror="this.parentElement.innerHTML=\'<div class=placeholder>' + (name ? name[0] : '?') + '</div>\'">';
+  }
+  return '<div class="placeholder">' + (name ? name[0] : '?') + '</div>';
+}
+
+function showLoading(msg) {
+  app.innerHTML = '<div class="loading"><div class="spinner"></div>' + (msg || 'Loading...') + '</div>';
+}
+
+async function init() {
+  showLoading('Loading validators...');
+  try {
+    const res = await fetch('/api/validators');
+    allValidators = await res.json();
+    if (allValidators.error) throw new Error(allValidators.error);
+    handleRoute();
+  } catch (e) {
+    app.innerHTML = '<div class="error">Failed to load validators: ' + e.message + '</div>';
+  }
+}
+
+function handleRoute() {
+  var hash = window.location.hash;
+  if (hash.startsWith('#/validator/')) {
+    var votePubkey = hash.replace('#/validator/', '');
+    var idx = allValidators.findIndex(function(v) { return v.votePubkey === votePubkey; });
+    if (idx >= 0) {
+      loadDetail(idx);
+      return;
+    }
+  }
+  window.location.hash = '';
+  renderList();
+}
+
+window.addEventListener('hashchange', function() {
+  if (allValidators.length > 0) handleRoute();
+});
+
+function renderList(filter) {
+  let validators = allValidators;
+  if (filter) {
+    const q = filter.toLowerCase();
+    validators = allValidators.filter(v =>
+      (v.name && v.name.toLowerCase().includes(q)) ||
+      v.votePubkey.toLowerCase().includes(q) ||
+      v.nodePubkey.toLowerCase().includes(q)
+    );
+  }
+
+  const totalStake = allValidators.reduce((s, v) => s + Number(v.activatedStake), 0);
+  const activeCount = allValidators.filter(v => v.active).length;
+
+  let html = '<div class="net-stats">'
+    + '<div class="net-stat"><div class="label">Validators</div><div class="val">' + allValidators.length + '</div></div>'
+    + '<div class="net-stat"><div class="label">Active</div><div class="val" style="color:#2e7d32">' + activeCount + '</div></div>'
+    + '<div class="net-stat"><div class="label">Total Stake</div><div class="val accent">' + fmt(totalStake / LAMPORTS, 0) + ' FOGO</div></div>'
+    + '</div>';
+
+  html += '<div class="search-box"><input type="text" id="searchInput" placeholder="Search by name or address..." value="' + (filter || '') + '"></div>';
+
+  html += '<div class="v-list">';
+  validators.forEach(function(v, i) {
+    const stake = Number(v.activatedStake) / LAMPORTS;
+    const pct = totalStake > 0 ? (Number(v.activatedStake) / totalStake * 100) : 0;
+    const rank = allValidators.indexOf(v) + 1;
+    const name = v.name || short(v.votePubkey);
+
+    html += '<div class="v-row" data-idx="' + allValidators.indexOf(v) + '">'
+      + '<div class="v-rank">#' + rank + '</div>'
+      + '<div class="v-avatar">' + avatarHtml(v.iconUrl, v.name) + '</div>'
+      + '<div class="v-info">'
+      + '<div class="v-name">' + name + '</div>'
+      + '<div class="v-pubkey">' + short(v.votePubkey) + '</div>'
+      + '</div>'
+      + '<div class="v-stats">'
+      + '<div class="v-stat-item"><div class="label">Stake</div><div class="val">' + fmt(stake, 0) + '</div></div>'
+      + '<div class="v-stat-item"><div class="label">Share</div><div class="val">' + pct.toFixed(1) + '%</div></div>'
+      + '<div class="v-stat-item"><div class="label">Fee</div><div class="val">' + v.commission + '%</div></div>'
+      + '<div class="v-stat-item"><span class="badge ' + (v.active ? 'active' : 'delinquent') + '">' + (v.active ? 'Active' : 'Delinquent') + '</span></div>'
+      + '</div></div>';
+  });
+  html += '</div>';
+
+  app.innerHTML = html;
+
+  document.getElementById('searchInput').addEventListener('input', function(e) {
+    renderList(e.target.value);
+  });
+
+  document.querySelectorAll('.v-row').forEach(function(row) {
+    row.addEventListener('click', function() {
+      var i = parseInt(row.dataset.idx);
+      window.location.hash = '#/validator/' + allValidators[i].votePubkey;
+    });
+  });
+}
+
+async function loadDetail(idx) {
+  const v = allValidators[idx];
+  app.innerHTML = '<div class="loading"><div class="spinner"></div>Fetching validator details...</div>';
+
+  try {
+    const [stakeAccounts, epochInfo, voteAccountInfo] = await Promise.all([
+      rpc('getProgramAccounts', [
+        'Stake11111111111111111111111111111111111111',
+        { encoding: 'jsonParsed', filters: [{ memcmp: { offset: 124, bytes: v.votePubkey } }] }
+      ]),
+      rpc('getEpochInfo'),
+      rpc('getAccountInfo', [v.votePubkey, { encoding: 'jsonParsed' }])
+    ]);
+
+    const voteData = voteAccountInfo?.value?.data?.parsed?.info;
+    let totalStaked = 0;
+    const delegators = [];
+    if (stakeAccounts) {
+      stakeAccounts.forEach(function(sa) {
+        const info = sa.account.data?.parsed?.info;
+        if (!info) return;
+        const lamports = sa.account.lamports || 0;
+        totalStaked += lamports;
+        delegators.push({
+          address: info.meta?.authorized?.staker || sa.pubkey,
+          stake: lamports,
+          status: info.stake?.delegation?.deactivationEpoch === '18446744073709551615' ? 'Active' : 'Deactivating'
+        });
+      });
+    }
+    delegators.sort(function(a, b) { return b.stake - a.stake; });
+
+    const name = v.name || short(v.votePubkey);
+    const epochCredits = v.epochCredits || [];
+    const latestCredits = epochCredits.length > 0 ? epochCredits[epochCredits.length - 1] : null;
+
+    let html = '<button class="back-btn" id="backBtn">&#8592; All Validators</button>';
+
+    // Header with avatar
+    html += '<div class="card"><div class="detail-header">'
+      + '<div class="detail-avatar">' + avatarHtml(v.iconUrl, v.name) + '</div>'
+      + '<div><div class="detail-title">' + name + ' <span class="badge ' + (v.active ? 'active' : 'delinquent') + '">' + (v.active ? 'Active' : 'Delinquent') + '</span></div>'
+      + (v.details ? '<div class="detail-desc">' + v.details + '</div>' : '')
+      + (v.website ? '<div class="detail-website"><a href="' + v.website + '" target="_blank">' + v.website + '</a></div>' : '')
+      + '</div></div>'
+      + '<div class="stat-grid" style="margin-top:20px">'
+      + '<div class="stat"><div class="stat-label">Vote Account</div><div class="stat-value small">' + v.votePubkey + '</div></div>'
+      + '<div class="stat"><div class="stat-label">Node Identity</div><div class="stat-value small">' + v.nodePubkey + '</div></div>'
+      + '<div class="stat"><div class="stat-label">Commission</div><div class="stat-value">' + v.commission + '%</div></div>'
+      + '</div></div>';
+
+    // Stake summary
+    html += '<div class="card"><h2>&#x1F525; Stake Summary</h2><div class="stat-grid">'
+      + '<div class="stat"><div class="stat-label">Total FOGO Deposited</div><div class="stat-value accent">' + fmt(totalStaked / LAMPORTS) + ' FOGO</div></div>'
+      + '<div class="stat"><div class="stat-label">Activated Stake</div><div class="stat-value">' + fmt(Number(v.activatedStake) / LAMPORTS) + ' FOGO</div></div>'
+      + '<div class="stat"><div class="stat-label">Delegators</div><div class="stat-value">' + delegators.length + '</div></div>'
+      + '</div></div>';
+
+    // Performance
+    html += '<div class="card"><h2>Performance</h2><div class="stat-grid">'
+      + '<div class="stat"><div class="stat-label">Last Vote Slot</div><div class="stat-value">' + (v.lastVote ? v.lastVote.toLocaleString() : '-') + '</div></div>'
+      + '<div class="stat"><div class="stat-label">Root Slot</div><div class="stat-value">' + (v.rootSlot ? v.rootSlot.toLocaleString() : '-') + '</div></div>'
+      + '<div class="stat"><div class="stat-label">Current Epoch</div><div class="stat-value">' + epochInfo.epoch + '</div></div>'
+      + '<div class="stat"><div class="stat-label">Epoch Credits</div><div class="stat-value">' + (latestCredits ? latestCredits[1].toLocaleString() : '-') + '</div></div>'
+      + '</div></div>';
+
+    // Vote account
+    if (voteData) {
+      html += '<div class="card"><h2>Vote Account Details</h2><div class="stat-grid">'
+        + '<div class="stat"><div class="stat-label">Authorized Voter</div><div class="stat-value small">' + (voteData.authorizedVoters?.[0]?.authorizedVoter || '-') + '</div></div>'
+        + '<div class="stat"><div class="stat-label">Authorized Withdrawer</div><div class="stat-value small">' + (voteData.authorizedWithdrawer || '-') + '</div></div>'
+        + '</div></div>';
+    }
+
+    // Tabs: Delegators | Transactions
+    html += '<div class="tab-bar">'
+      + '<button class="tab-btn active" data-tab="delegators">Delegators</button>'
+      + '<button class="tab-btn" data-tab="transactions">Transactions</button>'
+      + '</div>';
+
+    // Delegators tab content
+    html += '<div class="tab-content" id="tab-delegators">';
+    if (delegators.length > 0) {
+      var showing = delegators.slice(0, 50);
+      html += '<div class="tx-count">' + (delegators.length > 50 ? 'Top 50 of ' + delegators.length : delegators.length) + ' delegator(s)</div>'
+        + '<div style="overflow-x:auto;"><table class="data-table"><thead><tr><th>Staker</th><th>Stake</th><th>Status</th></tr></thead><tbody>';
+      showing.forEach(function(d) {
+        html += '<tr><td class="mono">' + short(d.address) + '</td>'
+          + '<td>' + fmt(d.stake / LAMPORTS) + ' FOGO</td>'
+          + '<td><span class="badge ' + (d.status === 'Active' ? 'active' : 'delinquent') + '">' + d.status + '</span></td></tr>';
+      });
+      html += '</tbody></table></div>';
+    } else {
+      html += '<div style="color:var(--text2);text-align:center;padding:20px;">No delegators found</div>';
+    }
+    html += '</div>';
+
+    // Transactions tab content (initially hidden)
+    html += '<div class="tab-content" id="tab-transactions" style="display:none">'
+      + '<div class="loading"><div class="spinner"></div>Loading transactions...</div>'
+      + '</div>';
+
+    app.innerHTML = html;
+    document.getElementById('backBtn').addEventListener('click', function() { window.location.hash = ''; });
+
+    // Tab switching
+    document.querySelectorAll('.tab-btn').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        document.querySelectorAll('.tab-btn').forEach(function(b) { b.classList.remove('active'); });
+        btn.classList.add('active');
+        var tab = btn.dataset.tab;
+        document.getElementById('tab-delegators').style.display = tab === 'delegators' ? '' : 'none';
+        document.getElementById('tab-transactions').style.display = tab === 'transactions' ? '' : 'none';
+        if (tab === 'transactions' && !txLoaded) {
+          loadTransactions(v.votePubkey);
+        }
+      });
+    });
+
+    // Transaction state
+    var txLoaded = false;
+    var txScanData = null;  // all signatures from fast scan
+    var txPageDetails = {}; // cached page details: { pageNum: [details] }
+    var txPage = 0;
+    var txPerPage = 20;
+
+    function formatTime(blockTime) {
+      if (!blockTime) return '-';
+      var d = new Date(blockTime * 1000);
+      var now = Date.now();
+      var diff = Math.floor((now - d.getTime()) / 1000);
+      if (diff < 0) diff = 0;
+      if (diff < 60) return diff + ' secs ago';
+      if (diff < 3600) return Math.floor(diff / 60) + ' min ago';
+      if (diff < 86400) return Math.floor(diff / 3600) + ' hrs ago';
+      if (diff < 604800) return Math.floor(diff / 86400) + ' days ago';
+      return d.toLocaleDateString();
+    }
+
+    function renderTxTable(loading) {
+      var container = document.getElementById('tab-transactions');
+      if (!txScanData) {
+        container.innerHTML = '<div class="loading"><div class="spinner"></div>Scanning all transactions...</div>';
+        return;
+      }
+
+      var allTxs = txScanData.transactions;
+      var totalPages = Math.ceil(allTxs.length / txPerPage);
+      var pageStart = txPage * txPerPage;
+      var pageEnd = Math.min(pageStart + txPerPage, allTxs.length);
+      var pageTxs = allTxs.slice(pageStart, pageEnd);
+      var pageDetails = txPageDetails[txPage] || null;
+
+      var h = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px;">'
+        + '<div class="tx-count">' + allTxs.length.toLocaleString() + ' total tx(s)</div>'
+        + '<div style="display:flex;align-items:center;gap:8px;">'
+        + '<span class="tx-count">Show</span>'
+        + '<select id="txPerPageSel" style="padding:6px 10px;border:1px solid var(--border);border-radius:8px;font-size:13px;font-family:inherit;background:var(--card);">'
+        + [10,20,50].map(function(n) { return '<option value="' + n + '"' + (n === txPerPage ? ' selected' : '') + '>' + n + '</option>'; }).join('')
+        + '</select>'
+        + '<span class="tx-count">Records</span>'
+        + '</div></div>';
+
+      h += '<div style="overflow-x:auto;"><table class="data-table"><thead><tr>'
+        + '<th>Signature</th>'
+        + '<th>Block</th>'
+        + '<th>Time</th>'
+        + '<th>Instructions</th>'
+        + '<th>Amount<br><span style="color:var(--accent);font-size:11px;font-weight:700;">' + fmt(txScanData.totalAmount, 6) + ' FOGO</span></th>'
+        + '<th>Fee (FOGO)</th>'
+        + '</tr></thead><tbody>';
+
+      if (allTxs.length === 0) {
+        h += '<tr><td colspan="6" style="text-align:center;color:var(--text2);padding:20px;">No transactions found</td></tr>';
+      } else if (loading) {
+        h += '<tr><td colspan="6" style="text-align:center;padding:30px;"><div class="spinner" style="margin:0 auto;"></div></td></tr>';
+      } else {
+        pageTxs.forEach(function(tx, i) {
+          var detail = pageDetails ? pageDetails[i] : null;
+          var ixHtml = '-';
+          var amountStr = fmt(0.000005, 6) + ' FOGO';
+          var feeStr = fmt(0.000005, 6);
+
+          if (detail) {
+            if (detail.instructions && detail.instructions.length > 0) {
+              ixHtml = '';
+              detail.instructions.forEach(function(ix) { ixHtml += '<span class="ix-badge">' + ix + '</span>'; });
+            }
+            amountStr = fmt(detail.amount, 6) + ' FOGO';
+            feeStr = fmt(detail.fee, 6);
+          }
+
+          h += '<tr>'
+            + '<td class="mono">' + short(tx.signature) + '</td>'
+            + '<td>' + tx.slot.toLocaleString() + '</td>'
+            + '<td>' + formatTime(tx.blockTime) + '</td>'
+            + '<td>' + ixHtml + '</td>'
+            + '<td>' + amountStr + '</td>'
+            + '<td>' + feeStr + '</td>'
+            + '</tr>';
+        });
+      }
+
+      h += '</tbody></table></div>';
+
+      // Pagination controls
+      if (totalPages > 1) {
+        h += '<div style="display:flex;justify-content:flex-end;align-items:center;margin-top:16px;gap:8px;">'
+          + '<button id="txPrev" style="padding:8px 14px;border:1px solid var(--border);border-radius:8px;background:var(--card);cursor:pointer;font-family:inherit;"' + (txPage === 0 ? ' disabled style="padding:8px 14px;border:1px solid var(--border);border-radius:8px;background:var(--card);opacity:0.4;cursor:default;font-family:inherit;"' : '') + '>&lt;</button>'
+          + '<span class="tx-count">Page ' + (txPage + 1) + ' of ' + totalPages + ' (' + (pageStart + 1) + '-' + pageEnd + ')</span>'
+          + '<button id="txNext" style="padding:8px 14px;border:1px solid var(--border);border-radius:8px;background:var(--card);cursor:pointer;font-family:inherit;"' + (txPage >= totalPages - 1 ? ' disabled style="padding:8px 14px;border:1px solid var(--border);border-radius:8px;background:var(--card);opacity:0.4;cursor:default;font-family:inherit;"' : '') + '>&gt;</button>'
+          + '</div>';
+      }
+
+      container.innerHTML = h;
+
+      // Bind events
+      var prevBtn = document.getElementById('txPrev');
+      var nextBtn = document.getElementById('txNext');
+      var selEl = document.getElementById('txPerPageSel');
+
+      if (prevBtn && txPage > 0) prevBtn.addEventListener('click', function() { txPage--; loadPageDetails(v.votePubkey); });
+      if (nextBtn && txPage < totalPages - 1) nextBtn.addEventListener('click', function() { txPage++; loadPageDetails(v.votePubkey); });
+      if (selEl) selEl.addEventListener('change', function() { txPerPage = parseInt(selEl.value); txPage = 0; txPageDetails = {}; loadPageDetails(v.votePubkey); });
+    }
+
+    async function loadPageDetails(votePubkey) {
+      if (txPageDetails[txPage]) {
+        renderTxTable(false);
+        return;
+      }
+      renderTxTable(true);
+      try {
+        var allTxs = txScanData.transactions;
+        var pageStart = txPage * txPerPage;
+        var pageEnd = Math.min(pageStart + txPerPage, allTxs.length);
+        var pageSigs = allTxs.slice(pageStart, pageEnd).map(function(t) { return t.signature; });
+
+        var res = await fetch('/api/tx-details', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ signatures: pageSigs, votePubkey: votePubkey })
+        });
+        var details = await res.json();
+        txPageDetails[txPage] = details;
+        renderTxTable(false);
+      } catch (e) {
+        renderTxTable(false);
+      }
+    }
+
+    async function loadTransactions(votePubkey) {
+      txLoaded = true;
+      txScanData = { transactions: [], totalAmount: 0, totalFee: 0, total: 0 };
+      txPageDetails = {};
+      txPage = 0;
+
+      var container = document.getElementById('tab-transactions');
+      container.innerHTML = '<div class="loading"><div class="spinner"></div>Checking cache...</div>';
+
+      // Check server cache first
+      try {
+        var cacheRes = await fetch('/api/tx-cache/' + votePubkey);
+        var cacheData = await cacheRes.json();
+        if (cacheData.cached && cacheData.done) {
+          txScanData = { transactions: cacheData.transactions, totalAmount: cacheData.totalAmount, totalFee: cacheData.totalFee, total: cacheData.total };
+          loadPageDetails(votePubkey);
+          return;
+        }
+      } catch (e) { /* ignore, proceed with SSE */ }
+
+      container.innerHTML = '<div class="loading"><div class="spinner"></div>Scanning transactions...</div>';
+
+      var firstPageLoaded = false;
+      var es = new EventSource('/api/tx-scan/' + votePubkey);
+
+      es.onmessage = function(event) {
+        var data = JSON.parse(event.data);
+
+        if (data.type === 'error') {
+          es.close();
+          container.innerHTML = '<div class="error">Failed: ' + data.message + '</div>';
+          return;
+        }
+
+        if (data.type === 'cached') {
+          txScanData.transactions = txScanData.transactions || [];
+          txScanData.totalAmount = data.totalAmount;
+          txScanData.totalFee = data.totalFee;
+          txScanData.total = data.total;
+          if (data.done) {
+            es.close();
+            loadPageDetails(votePubkey);
+            return;
+          }
+          // Partial cache, update count display
+          var countEl = container.querySelector('.tx-count');
+          if (countEl) countEl.textContent = data.total.toLocaleString() + ' total tx(s) (resuming scan...)';
+        }
+
+        if (data.type === 'batch') {
+          txScanData.transactions = txScanData.transactions.concat(data.transactions);
+          txScanData.totalAmount = data.totalAmount;
+          txScanData.totalFee = data.totalFee;
+          txScanData.total = data.runningTotal;
+
+          // Show scanning progress
+          if (!firstPageLoaded) {
+            firstPageLoaded = true;
+            loadPageDetails(votePubkey);
+          } else {
+            // Update header counts without re-fetching page details
+            var countEl = container.querySelector('.tx-count');
+            if (countEl) countEl.textContent = data.runningTotal.toLocaleString() + ' total tx(s)' + (data.done ? '' : ' (scanning...)');
+            // Update the total in the amount header
+            var thEls = container.querySelectorAll('.data-table th');
+            if (thEls.length >= 5) {
+              thEls[4].innerHTML = 'Amount<br><span style="color:var(--accent);font-size:11px;font-weight:700;">' + fmt(data.totalAmount, 6) + ' FOGO</span>';
+            }
+          }
+
+          if (data.done) es.close();
+        }
+
+        if (data.type === 'done') {
+          es.close();
+          txScanData.total = data.total;
+          txScanData.totalAmount = data.totalAmount;
+          txScanData.totalFee = data.totalFee;
+          renderTxTable(false);
+        }
+      };
+
+      es.onerror = function() {
+        es.close();
+        if (!firstPageLoaded) {
+          container.innerHTML = '<div class="error">Connection lost while scanning transactions.</div>';
+        }
+      };
+    }
+
+  } catch (e) {
+    app.innerHTML = '<button class="back-btn" id="backBtn2">&#8592; Back</button><div class="error">Failed to load details: ' + e.message + '</div>';
+    document.getElementById('backBtn2').addEventListener('click', function() { window.location.hash = ''; });
+  }
+}
+
+init();
+</script>
+</body>
+</html>
