@@ -587,10 +587,56 @@ async function loadDetail(idx) {
       });
     }
 
-    function renderMonthsUI() {
+    function renderMonthGrid(keys) {
+      var h = '';
+      keys.forEach(function(key) {
+        var m = monthsData[key];
+        var filteredTxs = getFilteredTxsForMonth(key);
+        var filteredCount = filteredTxs.filter(function(tx) { return !tx.err; }).length;
+        var filteredAmount = filteredCount * 0.000005;
+        var isExpanded = expandedMonth === key;
+        var hasFiltered = dateFrom || dateTo;
+        h += '<div class="month-card' + (isExpanded ? ' expanded' : '') + '" data-month="' + key + '">'
+          + '<div class="month-header">'
+          + '<span class="month-name">' + formatMonthName(key) + '</span>'
+          + '</div>'
+          + '<div class="month-stats">'
+          + '<div class="month-stat"><div class="label">Transactions</div><div class="val">' + (hasFiltered ? filteredCount.toLocaleString() + ' / ' + m.count.toLocaleString() : m.count.toLocaleString()) + '</div></div>'
+          + '<div class="month-stat"><div class="label">Amount</div><div class="val accent">' + fmt(hasFiltered ? filteredAmount : m.amount, 6) + '</div></div>'
+          + '</div>'
+          + '<button class="view-btn" data-month="' + key + '">View Transactions</button>'
+          + '</div>';
+      });
+      return h;
+    }
+
+    function renderMonthsUI(updateOnly) {
       var container = document.getElementById('tab-transactions');
       var keys = Object.keys(monthsData).sort().reverse();
       var sel = calcDateRangeTotal();
+
+      // During scanning, only update specific elements instead of rebuilding everything
+      if (updateOnly) {
+        var totalEl = document.getElementById('totalValue');
+        var countEl = document.getElementById('totalCount');
+        var scanStatus = document.getElementById('scanStatus');
+        var monthGrid = document.getElementById('monthGrid');
+
+        if (totalEl) totalEl.textContent = fmt(sel.total, 6) + ' FOGO';
+        if (countEl) countEl.textContent = sel.count.toLocaleString() + ' transactions';
+        if (scanStatus) {
+          if (scanDone) {
+            scanStatus.style.display = 'none';
+          } else {
+            scanStatus.style.display = '';
+          }
+        }
+        if (monthGrid) {
+          monthGrid.innerHTML = renderMonthGrid(keys);
+          bindMonthCardEvents();
+        }
+        return;
+      }
 
       var h = '';
 
@@ -616,9 +662,9 @@ async function loadDetail(idx) {
         ? 'Total for ' + (dateFrom || 'start') + ' to ' + (dateTo || 'now')
         : 'Total (All Time)';
       h += '<div class="total-summary">'
-        + '<div class="total-label">' + rangeLabel + '</div>'
-        + '<div class="total-value">' + fmt(sel.total, 6) + ' FOGO</div>'
-        + '<div class="total-sub">' + sel.count.toLocaleString() + ' transactions</div>'
+        + '<div class="total-label" id="totalLabel">' + rangeLabel + '</div>'
+        + '<div class="total-value" id="totalValue">' + fmt(sel.total, 6) + ' FOGO</div>'
+        + '<div class="total-sub" id="totalCount">' + sel.count.toLocaleString() + ' transactions</div>'
         + '</div>';
 
       // Quick select actions
@@ -631,31 +677,10 @@ async function loadDetail(idx) {
         + '</div>';
 
       // Scanning status
-      if (!scanDone) {
-        h += '<div class="tx-count" style="margin-bottom:16px;"><span class="spinner" style="width:14px;height:14px;border-width:2px;display:inline-block;vertical-align:middle;margin-right:8px;"></span> Scanning transactions...</div>';
-      }
+      h += '<div id="scanStatus" class="tx-count" style="margin-bottom:16px;' + (scanDone ? 'display:none;' : '') + '"><span class="spinner" style="width:14px;height:14px;border-width:2px;display:inline-block;vertical-align:middle;margin-right:8px;"></span> Scanning transactions...</div>';
 
       // Month grid
-      h += '<div class="month-grid">';
-      keys.forEach(function(key) {
-        var m = monthsData[key];
-        var filteredTxs = getFilteredTxsForMonth(key);
-        var filteredCount = filteredTxs.filter(function(tx) { return !tx.err; }).length;
-        var filteredAmount = filteredCount * 0.000005;
-        var isExpanded = expandedMonth === key;
-        var hasFiltered = dateFrom || dateTo;
-        h += '<div class="month-card' + (isExpanded ? ' expanded' : '') + '" data-month="' + key + '">'
-          + '<div class="month-header">'
-          + '<span class="month-name">' + formatMonthName(key) + '</span>'
-          + '</div>'
-          + '<div class="month-stats">'
-          + '<div class="month-stat"><div class="label">Transactions</div><div class="val">' + (hasFiltered ? filteredCount.toLocaleString() + ' / ' + m.count.toLocaleString() : m.count.toLocaleString()) + '</div></div>'
-          + '<div class="month-stat"><div class="label">Amount</div><div class="val accent">' + fmt(hasFiltered ? filteredAmount : m.amount, 6) + '</div></div>'
-          + '</div>'
-          + '<button class="view-btn" data-month="' + key + '">View Transactions</button>'
-          + '</div>';
-      });
-      h += '</div>';
+      h += '<div class="month-grid" id="monthGrid">' + renderMonthGrid(keys) + '</div>';
 
       // Expanded month transactions
       if (expandedMonth && monthTxs.length > 0) {
@@ -705,6 +730,32 @@ async function loadDetail(idx) {
       return h;
     }
 
+    function toDateStr(d) {
+      return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    }
+
+    function bindMonthCardEvents() {
+      // View transactions button only
+      document.querySelectorAll('.view-btn').forEach(function(btn) {
+        btn.addEventListener('click', function(e) {
+          e.stopPropagation();
+          var key = btn.dataset.month;
+          if (expandedMonth === key) {
+            expandedMonth = null;
+            monthTxs = [];
+            renderMonthsUI();
+            return;
+          }
+          expandedMonth = key;
+          monthTxPage = 0;
+          monthTxs = getFilteredTxsForMonth(key);
+          renderMonthsUI();
+          var section = document.getElementById('monthTxsSection');
+          if (section) section.scrollIntoView({ behavior: 'smooth' });
+        });
+      });
+    }
+
     function bindMonthEvents() {
       // Date range picker
       var applyBtn = document.getElementById('applyDateRange');
@@ -734,10 +785,6 @@ async function loadDetail(idx) {
       var last3m = document.getElementById('selectLast3Months');
       var thisMonth = document.getElementById('selectThisMonth');
       var lastMonth = document.getElementById('selectLastMonth');
-
-      function toDateStr(d) {
-        return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
-      }
 
       if (last7) last7.addEventListener('click', function() {
         var now = new Date();
@@ -785,26 +832,8 @@ async function loadDetail(idx) {
         renderMonthsUI();
       });
 
-      // View transactions button
-      document.querySelectorAll('.view-btn').forEach(function(btn) {
-        btn.addEventListener('click', function(e) {
-          e.stopPropagation();
-          var key = btn.dataset.month;
-          if (expandedMonth === key) {
-            expandedMonth = null;
-            monthTxs = [];
-            renderMonthsUI();
-            return;
-          }
-          expandedMonth = key;
-          monthTxPage = 0;
-          // Use filtered transactions if date range is set
-          monthTxs = getFilteredTxsForMonth(key);
-          renderMonthsUI();
-          var section = document.getElementById('monthTxsSection');
-          if (section) section.scrollIntoView({ behavior: 'smooth' });
-        });
-      });
+      // Bind month card events
+      bindMonthCardEvents();
 
       // Month tx pagination
       var prevBtn = document.getElementById('monthTxPrev');
@@ -857,6 +886,8 @@ async function loadDetail(idx) {
           return;
         }
 
+        var isFirstRender = Object.keys(monthsData).length === 0;
+
         if (data.type === 'cached' || data.type === 'batch') {
           // Update months data
           for (var k in data.months) {
@@ -877,7 +908,12 @@ async function loadDetail(idx) {
             // Fetch all transactions for date filtering
             fetchAllMonthTransactions(votePubkey);
           }
-          renderMonthsUI();
+          // First render builds the full UI, subsequent ones only update values
+          if (isFirstRender) {
+            renderMonthsUI();
+          } else {
+            renderMonthsUI(true); // Update only, preserve inputs
+          }
         }
 
         if (data.type === 'done') {
