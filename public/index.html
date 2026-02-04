@@ -197,13 +197,48 @@
     .total-summary .total-value { font-size: 28px; font-weight: 700; margin-top: 4px; }
     .total-summary .total-sub { font-size: 13px; opacity: 0.85; margin-top: 4px; }
 
-    .select-actions { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
+    .select-actions { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; align-items: center; }
     .select-actions button {
       padding: 8px 14px; border: 1px solid var(--border); border-radius: 8px;
       background: var(--card); font-size: 13px; cursor: pointer; font-family: inherit;
       transition: background 0.2s;
     }
     .select-actions button:hover { background: var(--border); }
+
+    .date-range-picker {
+      background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+      padding: 16px 20px; margin-bottom: 20px;
+    }
+    .date-range-picker .picker-title {
+      font-size: 13px; font-weight: 600; margin-bottom: 12px; color: var(--text);
+    }
+    .date-range-row {
+      display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
+    }
+    .date-input-group {
+      display: flex; flex-direction: column; gap: 4px;
+    }
+    .date-input-group label {
+      font-size: 11px; color: var(--text2); text-transform: uppercase; letter-spacing: 0.4px;
+    }
+    .date-input-group input {
+      padding: 10px 14px; border: 1px solid var(--border); border-radius: 8px;
+      font-size: 14px; font-family: inherit; background: var(--bg); color: var(--text);
+      min-width: 160px;
+    }
+    .date-input-group input:focus { outline: none; border-color: var(--accent); }
+    .date-range-row .apply-btn {
+      padding: 10px 20px; background: var(--accent); color: #fff; border: none;
+      border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer;
+      font-family: inherit; transition: opacity 0.2s; margin-top: 18px;
+    }
+    .date-range-row .apply-btn:hover { opacity: 0.85; }
+    .date-range-row .clear-btn {
+      padding: 10px 16px; background: var(--bg); color: var(--text2); border: 1px solid var(--border);
+      border-radius: 8px; font-size: 14px; cursor: pointer; font-family: inherit;
+      transition: background 0.2s; margin-top: 18px;
+    }
+    .date-range-row .clear-btn:hover { background: var(--border); }
 
     .month-txs { margin-top: 16px; }
 
@@ -486,13 +521,15 @@ async function loadDetail(idx) {
 
     // Transaction state
     var txLoaded = false;
-    var monthsData = {}; // { 'YYYY-MM': { count, amount } }
-    var selectedMonths = {}; // { 'YYYY-MM': true/false }
+    var monthsData = {}; // { 'YYYY-MM': { count, amount, transactions } }
+    var allTxsFlat = []; // flattened list of all transactions for date filtering
     var expandedMonth = null;
     var monthTxs = []; // transactions for expanded month
     var monthTxPage = 0;
     var monthTxPerPage = 20;
     var scanDone = false;
+    var dateFrom = null;
+    var dateTo = null;
 
     function formatMonthName(key) {
       if (key === 'unknown') return 'Unknown Date';
@@ -514,38 +551,83 @@ async function loadDetail(idx) {
       return d.toLocaleDateString();
     }
 
-    function calcSelectedTotal() {
-      var total = 0, count = 0;
-      for (var key in selectedMonths) {
-        if (selectedMonths[key] && monthsData[key]) {
-          total += monthsData[key].amount;
-          count += monthsData[key].count;
+    function calcDateRangeTotal() {
+      if (!dateFrom && !dateTo) {
+        // No date range - sum all
+        var total = 0, count = 0;
+        for (var key in monthsData) {
+          if (monthsData[key]) {
+            total += monthsData[key].amount;
+            count += monthsData[key].count;
+          }
         }
+        return { total: total, count: count, filtered: false };
       }
-      return { total: total, count: count };
+      // Filter by date range
+      var fromTs = dateFrom ? new Date(dateFrom).getTime() / 1000 : 0;
+      var toTs = dateTo ? (new Date(dateTo).getTime() / 1000) + 86400 : Infinity; // +1 day to include end date
+      var count = 0, total = 0;
+      allTxsFlat.forEach(function(tx) {
+        if (tx.blockTime && tx.blockTime >= fromTs && tx.blockTime < toTs && !tx.err) {
+          count++;
+          total += 0.000005;
+        }
+      });
+      return { total: total, count: count, filtered: true };
+    }
+
+    function getFilteredTxsForMonth(monthKey) {
+      if (!monthsData[monthKey]) return [];
+      var txs = monthsData[monthKey].transactions || [];
+      if (!dateFrom && !dateTo) return txs;
+      var fromTs = dateFrom ? new Date(dateFrom).getTime() / 1000 : 0;
+      var toTs = dateTo ? (new Date(dateTo).getTime() / 1000) + 86400 : Infinity;
+      return txs.filter(function(tx) {
+        return tx.blockTime && tx.blockTime >= fromTs && tx.blockTime < toTs;
+      });
     }
 
     function renderMonthsUI() {
       var container = document.getElementById('tab-transactions');
       var keys = Object.keys(monthsData).sort().reverse();
-      var sel = calcSelectedTotal();
-      var selCount = Object.values(selectedMonths).filter(Boolean).length;
+      var sel = calcDateRangeTotal();
 
       var h = '';
 
+      // Date range picker
+      h += '<div class="date-range-picker">'
+        + '<div class="picker-title">Select Date Range</div>'
+        + '<div class="date-range-row">'
+        + '<div class="date-input-group">'
+        + '<label>From</label>'
+        + '<input type="date" id="dateFrom" value="' + (dateFrom || '') + '">'
+        + '</div>'
+        + '<div class="date-input-group">'
+        + '<label>To</label>'
+        + '<input type="date" id="dateTo" value="' + (dateTo || '') + '">'
+        + '</div>'
+        + '<button class="apply-btn" id="applyDateRange">Apply</button>'
+        + '<button class="clear-btn" id="clearDateRange">Clear</button>'
+        + '</div>'
+        + '</div>';
+
       // Total summary
+      var rangeLabel = sel.filtered
+        ? 'Total for ' + (dateFrom || 'start') + ' to ' + (dateTo || 'now')
+        : 'Total (All Time)';
       h += '<div class="total-summary">'
-        + '<div class="total-label">Selected Total (' + selCount + ' month' + (selCount !== 1 ? 's' : '') + ')</div>'
+        + '<div class="total-label">' + rangeLabel + '</div>'
         + '<div class="total-value">' + fmt(sel.total, 6) + ' FOGO</div>'
         + '<div class="total-sub">' + sel.count.toLocaleString() + ' transactions</div>'
         + '</div>';
 
-      // Select actions
+      // Quick select actions
       h += '<div class="select-actions">'
-        + '<button id="selectAll">Select All</button>'
-        + '<button id="selectNone">Clear Selection</button>'
-        + '<button id="selectLast3">Last 3 Months</button>'
-        + '<button id="selectLast6">Last 6 Months</button>'
+        + '<button id="selectLast7Days">Last 7 Days</button>'
+        + '<button id="selectLast30Days">Last 30 Days</button>'
+        + '<button id="selectLast3Months">Last 3 Months</button>'
+        + '<button id="selectThisMonth">This Month</button>'
+        + '<button id="selectLastMonth">Last Month</button>'
         + '</div>';
 
       // Scanning status
@@ -557,16 +639,18 @@ async function loadDetail(idx) {
       h += '<div class="month-grid">';
       keys.forEach(function(key) {
         var m = monthsData[key];
-        var isSelected = selectedMonths[key];
+        var filteredTxs = getFilteredTxsForMonth(key);
+        var filteredCount = filteredTxs.filter(function(tx) { return !tx.err; }).length;
+        var filteredAmount = filteredCount * 0.000005;
         var isExpanded = expandedMonth === key;
-        h += '<div class="month-card' + (isSelected ? ' selected' : '') + (isExpanded ? ' expanded' : '') + '" data-month="' + key + '">'
+        var hasFiltered = dateFrom || dateTo;
+        h += '<div class="month-card' + (isExpanded ? ' expanded' : '') + '" data-month="' + key + '">'
           + '<div class="month-header">'
           + '<span class="month-name">' + formatMonthName(key) + '</span>'
-          + '<span class="month-check">' + (isSelected ? '&#10003;' : '') + '</span>'
           + '</div>'
           + '<div class="month-stats">'
-          + '<div class="month-stat"><div class="label">Transactions</div><div class="val">' + m.count.toLocaleString() + '</div></div>'
-          + '<div class="month-stat"><div class="label">Amount</div><div class="val accent">' + fmt(m.amount, 6) + '</div></div>'
+          + '<div class="month-stat"><div class="label">Transactions</div><div class="val">' + (hasFiltered ? filteredCount.toLocaleString() + ' / ' + m.count.toLocaleString() : m.count.toLocaleString()) + '</div></div>'
+          + '<div class="month-stat"><div class="label">Amount</div><div class="val accent">' + fmt(hasFiltered ? filteredAmount : m.amount, 6) + '</div></div>'
           + '</div>'
           + '<button class="view-btn" data-month="' + key + '">View Transactions</button>'
           + '</div>';
@@ -576,7 +660,8 @@ async function loadDetail(idx) {
       // Expanded month transactions
       if (expandedMonth && monthTxs.length > 0) {
         h += '<div class="month-txs" id="monthTxsSection">';
-        h += '<h3 style="margin-bottom:12px;">' + formatMonthName(expandedMonth) + ' Transactions</h3>';
+        var filteredLabel = (dateFrom || dateTo) ? ' (filtered)' : '';
+        h += '<h3 style="margin-bottom:12px;">' + formatMonthName(expandedMonth) + ' Transactions' + filteredLabel + '</h3>';
         h += renderMonthTxTable();
         h += '</div>';
       }
@@ -621,19 +706,88 @@ async function loadDetail(idx) {
     }
 
     function bindMonthEvents() {
-      // Month card toggle selection
-      document.querySelectorAll('.month-card').forEach(function(card) {
-        card.addEventListener('click', function(e) {
-          if (e.target.classList.contains('view-btn')) return;
-          var key = card.dataset.month;
-          selectedMonths[key] = !selectedMonths[key];
-          renderMonthsUI();
-        });
+      // Date range picker
+      var applyBtn = document.getElementById('applyDateRange');
+      var clearBtn = document.getElementById('clearDateRange');
+      var dateFromInput = document.getElementById('dateFrom');
+      var dateToInput = document.getElementById('dateTo');
+
+      if (applyBtn) applyBtn.addEventListener('click', function() {
+        dateFrom = dateFromInput.value || null;
+        dateTo = dateToInput.value || null;
+        expandedMonth = null;
+        monthTxs = [];
+        renderMonthsUI();
+      });
+
+      if (clearBtn) clearBtn.addEventListener('click', function() {
+        dateFrom = null;
+        dateTo = null;
+        expandedMonth = null;
+        monthTxs = [];
+        renderMonthsUI();
+      });
+
+      // Quick date presets
+      var last7 = document.getElementById('selectLast7Days');
+      var last30 = document.getElementById('selectLast30Days');
+      var last3m = document.getElementById('selectLast3Months');
+      var thisMonth = document.getElementById('selectThisMonth');
+      var lastMonth = document.getElementById('selectLastMonth');
+
+      function toDateStr(d) {
+        return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+      }
+
+      if (last7) last7.addEventListener('click', function() {
+        var now = new Date();
+        var from = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+        dateFrom = toDateStr(from);
+        dateTo = toDateStr(now);
+        expandedMonth = null; monthTxs = [];
+        renderMonthsUI();
+      });
+
+      if (last30) last30.addEventListener('click', function() {
+        var now = new Date();
+        var from = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+        dateFrom = toDateStr(from);
+        dateTo = toDateStr(now);
+        expandedMonth = null; monthTxs = [];
+        renderMonthsUI();
+      });
+
+      if (last3m) last3m.addEventListener('click', function() {
+        var now = new Date();
+        var from = new Date(now.getFullYear(), now.getMonth() - 3, now.getDate());
+        dateFrom = toDateStr(from);
+        dateTo = toDateStr(now);
+        expandedMonth = null; monthTxs = [];
+        renderMonthsUI();
+      });
+
+      if (thisMonth) thisMonth.addEventListener('click', function() {
+        var now = new Date();
+        var from = new Date(now.getFullYear(), now.getMonth(), 1);
+        dateFrom = toDateStr(from);
+        dateTo = toDateStr(now);
+        expandedMonth = null; monthTxs = [];
+        renderMonthsUI();
+      });
+
+      if (lastMonth) lastMonth.addEventListener('click', function() {
+        var now = new Date();
+        var from = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+        var to = new Date(now.getFullYear(), now.getMonth(), 0);
+        dateFrom = toDateStr(from);
+        dateTo = toDateStr(to);
+        expandedMonth = null; monthTxs = [];
+        renderMonthsUI();
       });
 
       // View transactions button
       document.querySelectorAll('.view-btn').forEach(function(btn) {
-        btn.addEventListener('click', async function(e) {
+        btn.addEventListener('click', function(e) {
           e.stopPropagation();
           var key = btn.dataset.month;
           if (expandedMonth === key) {
@@ -644,45 +798,12 @@ async function loadDetail(idx) {
           }
           expandedMonth = key;
           monthTxPage = 0;
-          // Fetch month transactions
-          try {
-            var res = await fetch('/api/tx-month/' + v.votePubkey + '/' + key);
-            var data = await res.json();
-            monthTxs = data.transactions || [];
-          } catch (e) {
-            monthTxs = [];
-          }
+          // Use filtered transactions if date range is set
+          monthTxs = getFilteredTxsForMonth(key);
           renderMonthsUI();
           var section = document.getElementById('monthTxsSection');
           if (section) section.scrollIntoView({ behavior: 'smooth' });
         });
-      });
-
-      // Select actions
-      var selectAll = document.getElementById('selectAll');
-      var selectNone = document.getElementById('selectNone');
-      var selectLast3 = document.getElementById('selectLast3');
-      var selectLast6 = document.getElementById('selectLast6');
-
-      if (selectAll) selectAll.addEventListener('click', function() {
-        for (var key in monthsData) selectedMonths[key] = true;
-        renderMonthsUI();
-      });
-      if (selectNone) selectNone.addEventListener('click', function() {
-        for (var key in monthsData) selectedMonths[key] = false;
-        renderMonthsUI();
-      });
-      if (selectLast3) selectLast3.addEventListener('click', function() {
-        var keys = Object.keys(monthsData).sort().reverse().slice(0, 3);
-        for (var key in monthsData) selectedMonths[key] = false;
-        keys.forEach(function(k) { selectedMonths[k] = true; });
-        renderMonthsUI();
-      });
-      if (selectLast6) selectLast6.addEventListener('click', function() {
-        var keys = Object.keys(monthsData).sort().reverse().slice(0, 6);
-        for (var key in monthsData) selectedMonths[key] = false;
-        keys.forEach(function(k) { selectedMonths[k] = true; });
-        renderMonthsUI();
       });
 
       // Month tx pagination
@@ -695,10 +816,12 @@ async function loadDetail(idx) {
     async function loadTransactions(votePubkey) {
       txLoaded = true;
       monthsData = {};
-      selectedMonths = {};
+      allTxsFlat = [];
       expandedMonth = null;
       monthTxs = [];
       scanDone = false;
+      dateFrom = null;
+      dateTo = null;
 
       var container = document.getElementById('tab-transactions');
       container.innerHTML = '<div class="loading"><div class="spinner"></div>Checking cache...</div>';
@@ -709,9 +832,11 @@ async function loadDetail(idx) {
         var cacheData = await cacheRes.json();
         if (cacheData.cached && cacheData.done) {
           monthsData = {};
+          allTxsFlat = [];
           for (var k in cacheData.months) {
-            monthsData[k] = { count: cacheData.months[k].count, amount: cacheData.months[k].amount };
-            selectedMonths[k] = true; // select all by default
+            var m = cacheData.months[k];
+            monthsData[k] = { count: m.count, amount: m.amount, transactions: m.transactions || [] };
+            allTxsFlat = allTxsFlat.concat(m.transactions || []);
           }
           scanDone = true;
           renderMonthsUI();
@@ -735,12 +860,22 @@ async function loadDetail(idx) {
         if (data.type === 'cached' || data.type === 'batch') {
           // Update months data
           for (var k in data.months) {
-            monthsData[k] = { count: data.months[k].count, amount: data.months[k].amount };
-            if (!(k in selectedMonths)) selectedMonths[k] = true;
+            var m = data.months[k];
+            if (!monthsData[k]) {
+              monthsData[k] = { count: 0, amount: 0, transactions: [] };
+            }
+            monthsData[k].count = m.count;
+            monthsData[k].amount = m.amount;
+            if (m.transactions) {
+              monthsData[k].transactions = m.transactions;
+              allTxsFlat = allTxsFlat.concat(m.transactions);
+            }
           }
           if (data.done) {
             scanDone = true;
             es.close();
+            // Fetch all transactions for date filtering
+            fetchAllMonthTransactions(votePubkey);
           }
           renderMonthsUI();
         }
@@ -749,12 +884,32 @@ async function loadDetail(idx) {
           scanDone = true;
           es.close();
           for (var k in data.months) {
-            monthsData[k] = { count: data.months[k].count, amount: data.months[k].amount };
-            if (!(k in selectedMonths)) selectedMonths[k] = true;
+            var m = data.months[k];
+            if (!monthsData[k]) {
+              monthsData[k] = { count: 0, amount: 0, transactions: [] };
+            }
+            monthsData[k].count = m.count;
+            monthsData[k].amount = m.amount;
           }
+          // Fetch all transactions for date filtering
+          fetchAllMonthTransactions(votePubkey);
           renderMonthsUI();
         }
       };
+
+      async function fetchAllMonthTransactions(votePubkey) {
+        // Fetch full transaction lists for all months
+        for (var k in monthsData) {
+          if (!monthsData[k].transactions || monthsData[k].transactions.length === 0) {
+            try {
+              var res = await fetch('/api/tx-month/' + votePubkey + '/' + k);
+              var data = await res.json();
+              monthsData[k].transactions = data.transactions || [];
+              allTxsFlat = allTxsFlat.concat(data.transactions || []);
+            } catch (e) {}
+          }
+        }
+      }
 
       es.onerror = function() {
         es.close();

@@ -126,13 +126,22 @@ app.get('/api/validators', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// Get cache status for a validator (monthly breakdown)
+// Get cache status for a validator (monthly breakdown with full transactions)
 app.get('/api/tx-cache/:votePubkey', (req, res) => {
   const cached = txCache[req.params.votePubkey];
   if (!cached) return res.json({ cached: false });
+  // Include full transactions for date filtering on frontend
+  const monthsWithTxs = {};
+  for (const [k, v] of Object.entries(cached.months)) {
+    monthsWithTxs[k] = {
+      count: v.count,
+      amount: v.amount,
+      transactions: v.transactions
+    };
+  }
   res.json({
     cached: true,
-    months: cached.months,
+    months: monthsWithTxs,
     done: cached.done
   });
 });
