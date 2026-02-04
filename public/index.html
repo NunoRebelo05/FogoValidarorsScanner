@@ -160,6 +160,53 @@
 
     .tx-count { font-size: 13px; color: var(--text2); margin-bottom: 12px; }
 
+    /* Monthly transactions UI */
+    .month-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; margin-bottom: 20px; }
+    .month-card {
+      background: var(--bg); border: 2px solid var(--border); border-radius: 12px;
+      padding: 16px; cursor: pointer; transition: all 0.2s; position: relative;
+    }
+    .month-card:hover { border-color: var(--accent2); }
+    .month-card.selected { border-color: var(--accent); background: #fff8f5; }
+    .month-card.expanded { border-color: var(--accent); }
+    .month-card .month-header { display: flex; justify-content: space-between; align-items: center; }
+    .month-card .month-name { font-size: 15px; font-weight: 600; }
+    .month-card .month-check {
+      width: 20px; height: 20px; border: 2px solid var(--border); border-radius: 6px;
+      display: flex; align-items: center; justify-content: center; font-size: 12px;
+      transition: all 0.2s; flex-shrink: 0;
+    }
+    .month-card.selected .month-check { background: var(--accent); border-color: var(--accent); color: #fff; }
+    .month-card .month-stats { margin-top: 10px; display: flex; gap: 16px; }
+    .month-card .month-stat { }
+    .month-card .month-stat .label { font-size: 10px; color: var(--text2); text-transform: uppercase; }
+    .month-card .month-stat .val { font-size: 14px; font-weight: 600; }
+    .month-card .month-stat .val.accent { color: var(--accent); }
+    .month-card .view-btn {
+      margin-top: 12px; padding: 6px 12px; border: 1px solid var(--border); border-radius: 8px;
+      background: var(--card); font-size: 12px; font-weight: 500; cursor: pointer;
+      font-family: inherit; transition: background 0.2s; width: 100%;
+    }
+    .month-card .view-btn:hover { background: var(--border); }
+
+    .total-summary {
+      background: linear-gradient(135deg, var(--accent), var(--accent2)); color: #fff;
+      border-radius: 14px; padding: 20px; margin-bottom: 20px; text-align: center;
+    }
+    .total-summary .total-label { font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; opacity: 0.9; }
+    .total-summary .total-value { font-size: 28px; font-weight: 700; margin-top: 4px; }
+    .total-summary .total-sub { font-size: 13px; opacity: 0.85; margin-top: 4px; }
+
+    .select-actions { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
+    .select-actions button {
+      padding: 8px 14px; border: 1px solid var(--border); border-radius: 8px;
+      background: var(--card); font-size: 13px; cursor: pointer; font-family: inherit;
+      transition: background 0.2s;
+    }
+    .select-actions button:hover { background: var(--border); }
+
+    .month-txs { margin-top: 16px; }
+
     .delegators-table { width: 100%; border-collapse: collapse; margin-top: 12px; }
     .delegators-table th {
       text-align: left; font-size: 12px; color: var(--text2);
@@ -439,10 +486,20 @@ async function loadDetail(idx) {
 
     // Transaction state
     var txLoaded = false;
-    var txScanData = null;  // all signatures from fast scan
-    var txPageDetails = {}; // cached page details: { pageNum: [details] }
-    var txPage = 0;
-    var txPerPage = 20;
+    var monthsData = {}; // { 'YYYY-MM': { count, amount } }
+    var selectedMonths = {}; // { 'YYYY-MM': true/false }
+    var expandedMonth = null;
+    var monthTxs = []; // transactions for expanded month
+    var monthTxPage = 0;
+    var monthTxPerPage = 20;
+    var scanDone = false;
+
+    function formatMonthName(key) {
+      if (key === 'unknown') return 'Unknown Date';
+      var parts = key.split('-');
+      var date = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1);
+      return date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+    }
 
     function formatTime(blockTime) {
       if (!blockTime) return '-';
@@ -457,123 +514,191 @@ async function loadDetail(idx) {
       return d.toLocaleDateString();
     }
 
-    function renderTxTable(loading) {
+    function calcSelectedTotal() {
+      var total = 0, count = 0;
+      for (var key in selectedMonths) {
+        if (selectedMonths[key] && monthsData[key]) {
+          total += monthsData[key].amount;
+          count += monthsData[key].count;
+        }
+      }
+      return { total: total, count: count };
+    }
+
+    function renderMonthsUI() {
       var container = document.getElementById('tab-transactions');
-      if (!txScanData) {
-        container.innerHTML = '<div class="loading"><div class="spinner"></div>Scanning all transactions...</div>';
-        return;
+      var keys = Object.keys(monthsData).sort().reverse();
+      var sel = calcSelectedTotal();
+      var selCount = Object.values(selectedMonths).filter(Boolean).length;
+
+      var h = '';
+
+      // Total summary
+      h += '<div class="total-summary">'
+        + '<div class="total-label">Selected Total (' + selCount + ' month' + (selCount !== 1 ? 's' : '') + ')</div>'
+        + '<div class="total-value">' + fmt(sel.total, 6) + ' FOGO</div>'
+        + '<div class="total-sub">' + sel.count.toLocaleString() + ' transactions</div>'
+        + '</div>';
+
+      // Select actions
+      h += '<div class="select-actions">'
+        + '<button id="selectAll">Select All</button>'
+        + '<button id="selectNone">Clear Selection</button>'
+        + '<button id="selectLast3">Last 3 Months</button>'
+        + '<button id="selectLast6">Last 6 Months</button>'
+        + '</div>';
+
+      // Scanning status
+      if (!scanDone) {
+        h += '<div class="tx-count" style="margin-bottom:16px;"><span class="spinner" style="width:14px;height:14px;border-width:2px;display:inline-block;vertical-align:middle;margin-right:8px;"></span> Scanning transactions...</div>';
       }
 
-      var allTxs = txScanData.transactions;
-      var totalPages = Math.ceil(allTxs.length / txPerPage);
-      var pageStart = txPage * txPerPage;
-      var pageEnd = Math.min(pageStart + txPerPage, allTxs.length);
-      var pageTxs = allTxs.slice(pageStart, pageEnd);
-      var pageDetails = txPageDetails[txPage] || null;
-
-      var h = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px;">'
-        + '<div class="tx-count">' + allTxs.length.toLocaleString() + ' total tx(s)</div>'
-        + '<div style="display:flex;align-items:center;gap:8px;">'
-        + '<span class="tx-count">Show</span>'
-        + '<select id="txPerPageSel" style="padding:6px 10px;border:1px solid var(--border);border-radius:8px;font-size:13px;font-family:inherit;background:var(--card);">'
-        + [10,20,50].map(function(n) { return '<option value="' + n + '"' + (n === txPerPage ? ' selected' : '') + '>' + n + '</option>'; }).join('')
-        + '</select>'
-        + '<span class="tx-count">Records</span>'
-        + '</div></div>';
-
-      h += '<div style="overflow-x:auto;"><table class="data-table"><thead><tr>'
-        + '<th>Signature</th>'
-        + '<th>Block</th>'
-        + '<th>Time</th>'
-        + '<th>Instructions</th>'
-        + '<th>Amount<br><span style="color:var(--accent);font-size:11px;font-weight:700;">' + fmt(txScanData.totalAmount, 6) + ' FOGO</span></th>'
-        + '<th>Fee (FOGO)</th>'
-        + '</tr></thead><tbody>';
-
-      if (allTxs.length === 0) {
-        h += '<tr><td colspan="6" style="text-align:center;color:var(--text2);padding:20px;">No transactions found</td></tr>';
-      } else if (loading) {
-        h += '<tr><td colspan="6" style="text-align:center;padding:30px;"><div class="spinner" style="margin:0 auto;"></div></td></tr>';
-      } else {
-        pageTxs.forEach(function(tx, i) {
-          var detail = pageDetails ? pageDetails[i] : null;
-          var ixHtml = '-';
-          var amountStr = fmt(0.000005, 6) + ' FOGO';
-          var feeStr = fmt(0.000005, 6);
-
-          if (detail) {
-            if (detail.instructions && detail.instructions.length > 0) {
-              ixHtml = '';
-              detail.instructions.forEach(function(ix) { ixHtml += '<span class="ix-badge">' + ix + '</span>'; });
-            }
-            amountStr = fmt(detail.amount, 6) + ' FOGO';
-            feeStr = fmt(detail.fee, 6);
-          }
-
-          h += '<tr>'
-            + '<td class="mono">' + short(tx.signature) + '</td>'
-            + '<td>' + tx.slot.toLocaleString() + '</td>'
-            + '<td>' + formatTime(tx.blockTime) + '</td>'
-            + '<td>' + ixHtml + '</td>'
-            + '<td>' + amountStr + '</td>'
-            + '<td>' + feeStr + '</td>'
-            + '</tr>';
-        });
-      }
-
-      h += '</tbody></table></div>';
-
-      // Pagination controls
-      if (totalPages > 1) {
-        h += '<div style="display:flex;justify-content:flex-end;align-items:center;margin-top:16px;gap:8px;">'
-          + '<button id="txPrev" style="padding:8px 14px;border:1px solid var(--border);border-radius:8px;background:var(--card);cursor:pointer;font-family:inherit;"' + (txPage === 0 ? ' disabled style="padding:8px 14px;border:1px solid var(--border);border-radius:8px;background:var(--card);opacity:0.4;cursor:default;font-family:inherit;"' : '') + '>&lt;</button>'
-          + '<span class="tx-count">Page ' + (txPage + 1) + ' of ' + totalPages + ' (' + (pageStart + 1) + '-' + pageEnd + ')</span>'
-          + '<button id="txNext" style="padding:8px 14px;border:1px solid var(--border);border-radius:8px;background:var(--card);cursor:pointer;font-family:inherit;"' + (txPage >= totalPages - 1 ? ' disabled style="padding:8px 14px;border:1px solid var(--border);border-radius:8px;background:var(--card);opacity:0.4;cursor:default;font-family:inherit;"' : '') + '>&gt;</button>'
+      // Month grid
+      h += '<div class="month-grid">';
+      keys.forEach(function(key) {
+        var m = monthsData[key];
+        var isSelected = selectedMonths[key];
+        var isExpanded = expandedMonth === key;
+        h += '<div class="month-card' + (isSelected ? ' selected' : '') + (isExpanded ? ' expanded' : '') + '" data-month="' + key + '">'
+          + '<div class="month-header">'
+          + '<span class="month-name">' + formatMonthName(key) + '</span>'
+          + '<span class="month-check">' + (isSelected ? '&#10003;' : '') + '</span>'
+          + '</div>'
+          + '<div class="month-stats">'
+          + '<div class="month-stat"><div class="label">Transactions</div><div class="val">' + m.count.toLocaleString() + '</div></div>'
+          + '<div class="month-stat"><div class="label">Amount</div><div class="val accent">' + fmt(m.amount, 6) + '</div></div>'
+          + '</div>'
+          + '<button class="view-btn" data-month="' + key + '">View Transactions</button>'
           + '</div>';
+      });
+      h += '</div>';
+
+      // Expanded month transactions
+      if (expandedMonth && monthTxs.length > 0) {
+        h += '<div class="month-txs" id="monthTxsSection">';
+        h += '<h3 style="margin-bottom:12px;">' + formatMonthName(expandedMonth) + ' Transactions</h3>';
+        h += renderMonthTxTable();
+        h += '</div>';
       }
 
       container.innerHTML = h;
-
-      // Bind events
-      var prevBtn = document.getElementById('txPrev');
-      var nextBtn = document.getElementById('txNext');
-      var selEl = document.getElementById('txPerPageSel');
-
-      if (prevBtn && txPage > 0) prevBtn.addEventListener('click', function() { txPage--; loadPageDetails(v.votePubkey); });
-      if (nextBtn && txPage < totalPages - 1) nextBtn.addEventListener('click', function() { txPage++; loadPageDetails(v.votePubkey); });
-      if (selEl) selEl.addEventListener('change', function() { txPerPage = parseInt(selEl.value); txPage = 0; txPageDetails = {}; loadPageDetails(v.votePubkey); });
+      bindMonthEvents();
     }
 
-    async function loadPageDetails(votePubkey) {
-      if (txPageDetails[txPage]) {
-        renderTxTable(false);
-        return;
-      }
-      renderTxTable(true);
-      try {
-        var allTxs = txScanData.transactions;
-        var pageStart = txPage * txPerPage;
-        var pageEnd = Math.min(pageStart + txPerPage, allTxs.length);
-        var pageSigs = allTxs.slice(pageStart, pageEnd).map(function(t) { return t.signature; });
+    function renderMonthTxTable() {
+      var totalPages = Math.ceil(monthTxs.length / monthTxPerPage);
+      var pageStart = monthTxPage * monthTxPerPage;
+      var pageEnd = Math.min(pageStart + monthTxPerPage, monthTxs.length);
+      var pageTxs = monthTxs.slice(pageStart, pageEnd);
 
-        var res = await fetch('/api/tx-details', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ signatures: pageSigs, votePubkey: votePubkey })
-        });
-        var details = await res.json();
-        txPageDetails[txPage] = details;
-        renderTxTable(false);
-      } catch (e) {
-        renderTxTable(false);
+      var h = '<div style="overflow-x:auto;"><table class="data-table"><thead><tr>'
+        + '<th>Signature</th>'
+        + '<th>Block</th>'
+        + '<th>Time</th>'
+        + '<th>Amount (FOGO)</th>'
+        + '</tr></thead><tbody>';
+
+      pageTxs.forEach(function(tx) {
+        h += '<tr>'
+          + '<td class="mono">' + short(tx.signature) + '</td>'
+          + '<td>' + (tx.slot ? tx.slot.toLocaleString() : '-') + '</td>'
+          + '<td>' + formatTime(tx.blockTime) + '</td>'
+          + '<td>' + fmt(0.000005, 6) + '</td>'
+          + '</tr>';
+      });
+
+      h += '</tbody></table></div>';
+
+      if (totalPages > 1) {
+        h += '<div style="display:flex;justify-content:flex-end;align-items:center;margin-top:16px;gap:8px;">'
+          + '<button id="monthTxPrev" ' + (monthTxPage === 0 ? 'disabled style="opacity:0.4;"' : '') + ' style="padding:8px 14px;border:1px solid var(--border);border-radius:8px;background:var(--card);cursor:pointer;font-family:inherit;">&lt;</button>'
+          + '<span class="tx-count">Page ' + (monthTxPage + 1) + ' of ' + totalPages + '</span>'
+          + '<button id="monthTxNext" ' + (monthTxPage >= totalPages - 1 ? 'disabled style="opacity:0.4;"' : '') + ' style="padding:8px 14px;border:1px solid var(--border);border-radius:8px;background:var(--card);cursor:pointer;font-family:inherit;">&gt;</button>'
+          + '</div>';
       }
+
+      return h;
+    }
+
+    function bindMonthEvents() {
+      // Month card toggle selection
+      document.querySelectorAll('.month-card').forEach(function(card) {
+        card.addEventListener('click', function(e) {
+          if (e.target.classList.contains('view-btn')) return;
+          var key = card.dataset.month;
+          selectedMonths[key] = !selectedMonths[key];
+          renderMonthsUI();
+        });
+      });
+
+      // View transactions button
+      document.querySelectorAll('.view-btn').forEach(function(btn) {
+        btn.addEventListener('click', async function(e) {
+          e.stopPropagation();
+          var key = btn.dataset.month;
+          if (expandedMonth === key) {
+            expandedMonth = null;
+            monthTxs = [];
+            renderMonthsUI();
+            return;
+          }
+          expandedMonth = key;
+          monthTxPage = 0;
+          // Fetch month transactions
+          try {
+            var res = await fetch('/api/tx-month/' + v.votePubkey + '/' + key);
+            var data = await res.json();
+            monthTxs = data.transactions || [];
+          } catch (e) {
+            monthTxs = [];
+          }
+          renderMonthsUI();
+          var section = document.getElementById('monthTxsSection');
+          if (section) section.scrollIntoView({ behavior: 'smooth' });
+        });
+      });
+
+      // Select actions
+      var selectAll = document.getElementById('selectAll');
+      var selectNone = document.getElementById('selectNone');
+      var selectLast3 = document.getElementById('selectLast3');
+      var selectLast6 = document.getElementById('selectLast6');
+
+      if (selectAll) selectAll.addEventListener('click', function() {
+        for (var key in monthsData) selectedMonths[key] = true;
+        renderMonthsUI();
+      });
+      if (selectNone) selectNone.addEventListener('click', function() {
+        for (var key in monthsData) selectedMonths[key] = false;
+        renderMonthsUI();
+      });
+      if (selectLast3) selectLast3.addEventListener('click', function() {
+        var keys = Object.keys(monthsData).sort().reverse().slice(0, 3);
+        for (var key in monthsData) selectedMonths[key] = false;
+        keys.forEach(function(k) { selectedMonths[k] = true; });
+        renderMonthsUI();
+      });
+      if (selectLast6) selectLast6.addEventListener('click', function() {
+        var keys = Object.keys(monthsData).sort().reverse().slice(0, 6);
+        for (var key in monthsData) selectedMonths[key] = false;
+        keys.forEach(function(k) { selectedMonths[k] = true; });
+        renderMonthsUI();
+      });
+
+      // Month tx pagination
+      var prevBtn = document.getElementById('monthTxPrev');
+      var nextBtn = document.getElementById('monthTxNext');
+      if (prevBtn && monthTxPage > 0) prevBtn.addEventListener('click', function() { monthTxPage--; renderMonthsUI(); });
+      if (nextBtn && monthTxPage < Math.ceil(monthTxs.length / monthTxPerPage) - 1) nextBtn.addEventListener('click', function() { monthTxPage++; renderMonthsUI(); });
     }
 
     async function loadTransactions(votePubkey) {
       txLoaded = true;
-      txScanData = { transactions: [], totalAmount: 0, totalFee: 0, total: 0 };
-      txPageDetails = {};
-      txPage = 0;
+      monthsData = {};
+      selectedMonths = {};
+      expandedMonth = null;
+      monthTxs = [];
+      scanDone = false;
 
       var container = document.getElementById('tab-transactions');
       container.innerHTML = '<div class="loading"><div class="spinner"></div>Checking cache...</div>';
@@ -583,15 +708,19 @@ async function loadDetail(idx) {
         var cacheRes = await fetch('/api/tx-cache/' + votePubkey);
         var cacheData = await cacheRes.json();
         if (cacheData.cached && cacheData.done) {
-          txScanData = { transactions: cacheData.transactions, totalAmount: cacheData.totalAmount, totalFee: cacheData.totalFee, total: cacheData.total };
-          loadPageDetails(votePubkey);
+          monthsData = {};
+          for (var k in cacheData.months) {
+            monthsData[k] = { count: cacheData.months[k].count, amount: cacheData.months[k].amount };
+            selectedMonths[k] = true; // select all by default
+          }
+          scanDone = true;
+          renderMonthsUI();
           return;
         }
       } catch (e) { /* ignore, proceed with SSE */ }
 
       container.innerHTML = '<div class="loading"><div class="spinner"></div>Scanning transactions...</div>';
 
-      var firstPageLoaded = false;
       var es = new EventSource('/api/tx-scan/' + votePubkey);
 
       es.onmessage = function(event) {
@@ -603,57 +732,33 @@ async function loadDetail(idx) {
           return;
         }
 
-        if (data.type === 'cached') {
-          txScanData.transactions = txScanData.transactions || [];
-          txScanData.totalAmount = data.totalAmount;
-          txScanData.totalFee = data.totalFee;
-          txScanData.total = data.total;
+        if (data.type === 'cached' || data.type === 'batch') {
+          // Update months data
+          for (var k in data.months) {
+            monthsData[k] = { count: data.months[k].count, amount: data.months[k].amount };
+            if (!(k in selectedMonths)) selectedMonths[k] = true;
+          }
           if (data.done) {
+            scanDone = true;
             es.close();
-            loadPageDetails(votePubkey);
-            return;
           }
-          // Partial cache, update count display
-          var countEl = container.querySelector('.tx-count');
-          if (countEl) countEl.textContent = data.total.toLocaleString() + ' total tx(s) (resuming scan...)';
-        }
-
-        if (data.type === 'batch') {
-          txScanData.transactions = txScanData.transactions.concat(data.transactions);
-          txScanData.totalAmount = data.totalAmount;
-          txScanData.totalFee = data.totalFee;
-          txScanData.total = data.runningTotal;
-
-          // Show scanning progress
-          if (!firstPageLoaded) {
-            firstPageLoaded = true;
-            loadPageDetails(votePubkey);
-          } else {
-            // Update header counts without re-fetching page details
-            var countEl = container.querySelector('.tx-count');
-            if (countEl) countEl.textContent = data.runningTotal.toLocaleString() + ' total tx(s)' + (data.done ? '' : ' (scanning...)');
-            // Update the total in the amount header
-            var thEls = container.querySelectorAll('.data-table th');
-            if (thEls.length >= 5) {
-              thEls[4].innerHTML = 'Amount<br><span style="color:var(--accent);font-size:11px;font-weight:700;">' + fmt(data.totalAmount, 6) + ' FOGO</span>';
-            }
-          }
-
-          if (data.done) es.close();
+          renderMonthsUI();
         }
 
         if (data.type === 'done') {
+          scanDone = true;
           es.close();
-          txScanData.total = data.total;
-          txScanData.totalAmount = data.totalAmount;
-          txScanData.totalFee = data.totalFee;
-          renderTxTable(false);
+          for (var k in data.months) {
+            monthsData[k] = { count: data.months[k].count, amount: data.months[k].amount };
+            if (!(k in selectedMonths)) selectedMonths[k] = true;
+          }
+          renderMonthsUI();
         }
       };
 
       es.onerror = function() {
         es.close();
-        if (!firstPageLoaded) {
+        if (Object.keys(monthsData).length === 0) {
           container.innerHTML = '<div class="error">Connection lost while scanning transactions.</div>';
         }
       };

@@ -6,8 +6,16 @@ const RPC = 'https://mainnet.fogo.io';
 const ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
 const FEE_PER_TX = 0.000005;
 
-// In-memory cache for tx scans: { votePubkey: { transactions, totalAmount, totalFee, done, lastSig } }
+// In-memory cache for tx scans: { votePubkey: { months: { 'YYYY-MM': { transactions, count, amount } }, done, lastSig } }
 const txCache = {};
+
+function getMonthKey(blockTime) {
+  if (!blockTime) return 'unknown';
+  const d = new Date(blockTime * 1000);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  return `${y}-${m}`;
+}
 
 function toBase58(bytes) {
   let num = 0n;
@@ -118,22 +126,18 @@ app.get('/api/validators', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// Get cache status for a validator
+// Get cache status for a validator (monthly breakdown)
 app.get('/api/tx-cache/:votePubkey', (req, res) => {
   const cached = txCache[req.params.votePubkey];
   if (!cached) return res.json({ cached: false });
   res.json({
     cached: true,
-    total: cached.transactions.length,
-    totalAmount: cached.totalAmount,
-    totalFee: cached.totalFee,
-    done: cached.done,
-    // Only send signatures, slots, times - not full tx data to keep payload small
-    transactions: cached.transactions
+    months: cached.months,
+    done: cached.done
   });
 });
 
-// SSE scan - resumes from cache if available
+// SSE scan by month - streams monthly summaries as they're discovered
 app.get('/api/tx-scan/:votePubkey', async (req, res) => {
   const { votePubkey } = req.params;
 
@@ -145,7 +149,7 @@ app.get('/api/tx-scan/:votePubkey', async (req, res) => {
   try {
     // Initialize or resume from cache
     if (!txCache[votePubkey]) {
-      txCache[votePubkey] = { transactions: [], totalAmount: 0, totalFee: 0, done: false, lastSig: null };
+      txCache[votePubkey] = { months: {}, done: false, lastSig: null };
     }
     const cache = txCache[votePubkey];
 
@@ -153,22 +157,18 @@ app.get('/api/tx-scan/:votePubkey', async (req, res) => {
     if (cache.done) {
       res.write('data: ' + JSON.stringify({
         type: 'cached',
-        total: cache.transactions.length,
-        totalAmount: cache.totalAmount,
-        totalFee: cache.totalFee,
+        months: cache.months,
         done: true
       }) + '\n\n');
       res.end();
       return;
     }
 
-    // If we have partial data, send it first as a cached batch
-    if (cache.transactions.length > 0) {
+    // If we have partial data, send it first
+    if (Object.keys(cache.months).length > 0) {
       res.write('data: ' + JSON.stringify({
         type: 'cached',
-        total: cache.transactions.length,
-        totalAmount: cache.totalAmount,
-        totalFee: cache.totalFee,
+        months: cache.months,
         done: false
       }) + '\n\n');
     }
@@ -185,40 +185,54 @@ app.get('/api/tx-scan/:votePubkey', async (req, res) => {
       const sigs = sigRes.result || [];
       if (sigs.length === 0) { scanning = false; break; }
 
-      const batch = sigs.map(s => ({ signature: s.signature, slot: s.slot, blockTime: s.blockTime, err: s.err }));
-      cache.transactions.push(...batch);
+      // Group by month
+      for (const s of sigs) {
+        const monthKey = getMonthKey(s.blockTime);
+        if (!cache.months[monthKey]) {
+          cache.months[monthKey] = { transactions: [], count: 0, amount: 0 };
+        }
+        cache.months[monthKey].transactions.push({
+          signature: s.signature, slot: s.slot, blockTime: s.blockTime, err: s.err
+        });
+        if (!s.err) {
+          cache.months[monthKey].count++;
+          cache.months[monthKey].amount += FEE_PER_TX;
+        }
+      }
+
       before = sigs[sigs.length - 1].signature;
       cache.lastSig = before;
       batchNum++;
 
-      const successCount = cache.transactions.filter(t => !t.err).length;
-      cache.totalAmount = successCount * FEE_PER_TX;
-      cache.totalFee = successCount * FEE_PER_TX;
-
       const isDone = sigs.length < 1000;
+
+      // Send updated monthly summary
+      const monthsSummary = {};
+      for (const [k, v] of Object.entries(cache.months)) {
+        monthsSummary[k] = { count: v.count, amount: v.amount };
+      }
 
       res.write('data: ' + JSON.stringify({
         type: 'batch',
         batchNum,
-        batchSize: batch.length,
-        transactions: batch,
-        runningTotal: cache.transactions.length,
-        totalAmount: cache.totalAmount,
-        totalFee: cache.totalFee,
+        months: monthsSummary,
         done: isDone
       }) + '\n\n');
 
       if (isDone) { scanning = false; cache.done = true; }
     }
 
-    // If we exited because no more sigs
+    // Final done message
     if (!cache.done) cache.done = true;
+
+    const monthsSummary = {};
+    for (const [k, v] of Object.entries(cache.months)) {
+      monthsSummary[k] = { count: v.count, amount: v.amount };
+    }
 
     res.write('data: ' + JSON.stringify({
       type: 'done',
-      total: cache.transactions.length,
-      totalAmount: cache.totalAmount,
-      totalFee: cache.totalFee
+      months: monthsSummary
     }) + '\n\n');
 
     res.end();
@@ -226,6 +240,16 @@ app.get('/api/tx-scan/:votePubkey', async (req, res) => {
     res.write('data: ' + JSON.stringify({ type: 'error', message: e.message }) + '\n\n');
     res.end();
   }
+});
+
+// Get transactions for a specific month
+app.get('/api/tx-month/:votePubkey/:monthKey', (req, res) => {
+  const { votePubkey, monthKey } = req.params;
+  const cached = txCache[votePubkey];
+  if (!cached || !cached.months[monthKey]) {
+    return res.json({ transactions: [] });
+  }
+  res.json({ transactions: cached.months[monthKey].transactions });
 });
 
 // Fetch full details for a batch of transactions by signature
